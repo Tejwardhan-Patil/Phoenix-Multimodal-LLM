@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  multimodal-api:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile
+    container_name: multimodal_api_service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - multimodal-inference
+
+  multimodal-inference:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile
+    container_name: multimodal_inference_service
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+    command: ["python", "inference.py"]
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  cplusplus-preprocessing:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile
+    container_name: cpp_preprocessing_service
+    volumes:
+      - ./data:/app/data
+      - ./preprocessing:/app/preprocessing
+    command: ["/app/preprocessing/preprocess_audio_cpp"]
+    environment:
+      - CXXFLAGS="-O3"
+    depends_on:
+      - multimodal-api
+
+networks:
+  default:
+    driver: bridge

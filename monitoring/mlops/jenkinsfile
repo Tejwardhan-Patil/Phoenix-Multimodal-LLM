@@ -1,0 +1,125 @@
+pipeline {
+    agent any
+
+    environment {
+        PYTHON_VERSION = '3.8'
+        CMAKE_VERSION = '3.18.4'
+        MLFLOW_TRACKING_URI = 'http://mlflow-server:5000'
+        MLFLOW_EXPERIMENT_NAME = 'PhoenixMultimodalExperiment'
+    }
+
+    stages {
+        stage('Prepare Environment') {
+            steps {
+                echo 'Setting up environment...'
+                sh '''
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install -r deployment/api/requirements.txt
+                '''
+            }
+        }
+
+        stage('Checkout Code') {
+            steps {
+                echo 'Cloning repository...'
+                git branch: 'main', url: 'https://git.website.com/repo.git'
+            }
+        }
+
+        stage('Build C++ Components') {
+            steps {
+                echo 'Building C++ components...'
+                sh '''
+                    mkdir -p build
+                    cd build
+                    cmake ..
+                    make
+                '''
+            }
+        }
+
+        stage('Run Unit Tests') {
+            parallel {
+                stage('Python Tests') {
+                    steps {
+                        echo 'Running Python unit tests...'
+                        sh '''
+                            . venv/bin/activate
+                            python -m unittest discover -s tests/
+                        '''
+                    }
+                }
+                stage('C++ Tests') {
+                    steps {
+                        echo 'Running C++ unit tests...'
+                        sh './build/tests/test_models_cpp'
+                    }
+                }
+            }
+        }
+
+        stage('Train Model') {
+            steps {
+                echo 'Training multimodal model...'
+                sh '''
+                    . venv/bin/activate
+                    python models/train.py --config configs/train_config.yaml
+                '''
+            }
+        }
+
+        stage('Monitor and Log Metrics') {
+            steps {
+                echo 'Logging metrics to MLflow...'
+                sh '''
+                    . venv/bin/activate
+                    python monitoring/metrics/monitor.py --mlflow-uri $MLFLOW_TRACKING_URI --experiment-name $MLFLOW_EXPERIMENT_NAME
+                '''
+            }
+        }
+
+        stage('Deploy to AWS') {
+            steps {
+                echo 'Deploying model to AWS...'
+                sh '''
+                    . venv/bin/activate
+                    python deployment/scripts/deploy_aws.py
+                '''
+            }
+        }
+
+        stage('Deploy to GCP') {
+            steps {
+                echo 'Deploying model to GCP...'
+                sh '''
+                    . venv/bin/activate
+                    python deployment/scripts/deploy_gcp.py
+                '''
+            }
+        }
+
+        stage('Deploy to Azure') {
+            steps {
+                echo 'Deploying model to Azure...'
+                sh '''
+                    . venv/bin/activate
+                    python deployment/scripts/deploy_azure.py
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Cleaning up workspace...'
+            cleanWs()
+        }
+        success {
+            echo 'Pipeline completed successfully.'
+        }
+        failure {
+            echo 'Pipeline failed.'
+        }
+    }
+}

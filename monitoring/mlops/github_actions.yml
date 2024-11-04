@@ -1,0 +1,87 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/*'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Set up C++ Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install build-essential cmake libmlflow-dev
+
+  test:
+    needs: setup
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run Unit Tests (Python)
+        run: |
+          pytest tests/test_models.py
+          pytest tests/test_data_pipeline.py
+          pytest tests/test_api.py
+          
+      - name: Run Unit Tests (C++)
+        run: |
+          make -C tests/test_models_cpp
+          ./tests/test_models_cpp/test_models_cpp
+          make -C tests/test_data_pipeline_cpp
+          ./tests/test_data_pipeline_cpp/test_data_pipeline_cpp
+          
+      - name: Run Linting
+        run: |
+          flake8 .
+          clang-tidy --fix .
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Build Python and C++ Components
+        run: |
+          python setup.py build
+          cmake . && make
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deploy to AWS
+        run: |
+          python deployment/scripts/deploy_aws.py
+
+      - name: Deploy to GCP
+        run: |
+          python deployment/scripts/deploy_gcp.py
+
+      - name: Deploy to Azure
+        run: |
+          python deployment/scripts/deploy_azure.py
+
+      - name: Deploy C++ Binary
+        run: |
+          ./deployment/scripts/deploy_cpp_binary.sh
